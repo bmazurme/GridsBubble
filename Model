@@ -1,0 +1,219 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using Autodesk.Revit.DB;
+using Autodesk.Revit.UI;
+using ApexMEP.Plumbing.Views;
+using System.Windows;
+using System.ComponentModel;
+using System.Windows.Input;
+using ApexMEP.Plumbing.Model;
+
+namespace Plumbing.AnnotateGrids
+{
+    [Autodesk.Revit.Attributes.Transaction(Autodesk.Revit.Attributes.TransactionMode.Manual)]
+    [Autodesk.Revit.Attributes.Regeneration(Autodesk.Revit.Attributes.RegenerationOption.Manual)]
+    [Autodesk.Revit.Attributes.Journaling(Autodesk.Revit.Attributes.JournalingMode.NoCommandData)]
+
+    public class AnnotateBubble : IExternalCommand
+    {
+        #region IExternalCommand Members Implementation
+
+        public Autodesk.Revit.UI.Result Execute(ExternalCommandData revit,
+                                                 ref string message,
+                                                 ElementSet elements)
+        {
+            try
+            {
+                TransferToPlan.revit = revit;                
+                WindowGrids windowGrids = new WindowGrids();
+                windowGrids.ShowDialog();
+
+                return Autodesk.Revit.UI.Result.Succeeded;
+            }
+            catch (Exception ff)
+            {
+                ErrorWindow Err = new ErrorWindow(ff.Message);
+                Err.ShowDialog();
+
+                return Autodesk.Revit.UI.Result.Failed;
+            }
+
+            throw new NotImplementedException();
+        }
+
+        #endregion IExternalCommand Members Implementation
+    }
+
+
+    class LibCategoriesToPlan
+    {
+        public IList<Element> AllElneweActiveView(Document doc, List<BuiltInCategory> listBuiltInCategories)
+        {
+            List<Element> listElements = new List<Element>();
+
+            foreach (BuiltInCategory category in listBuiltInCategories)
+            {
+                ElementCategoryFilter elementCategoryFilter = new ElementCategoryFilter(category);
+                FilteredElementCollector filteredElementCollector = new FilteredElementCollector(doc, doc.ActiveView.Id);
+                IList<Element> list = filteredElementCollector.WherePasses(elementCategoryFilter).WhereElementIsNotElementType().ToElements();
+                listElements.AddRange(list);
+            }
+
+            return listElements;
+        }
+    }
+
+
+    class ClassAnnotateTagsToPlan
+    {
+        private readonly List<BuiltInCategory> listCategories = new List<BuiltInCategory>() { BuiltInCategory.OST_Grids, };
+        
+
+        public void GridsBubbleOn()
+        {
+            ExternalCommandData revit = TransferToPlan.revit;
+            UIApplication uiapp = revit.Application;
+            Document doc = uiapp.ActiveUIDocument.Document;
+            View activeView = doc.ActiveView;
+
+            LibCategoriesToPlan libCategories = new LibCategoriesToPlan();
+            List<Element> listGrids = libCategories.AllElneweActiveView(doc, listCategories).ToList();
+
+            bool isCheckedAxesSideFirst = Convert.ToBoolean(Properties.Settings.Default["isCheckedAxesSideFirst"]);
+            bool isCheckedAxesSideSecond = Convert.ToBoolean(Properties.Settings.Default["isCheckedAxesSideSecond"]);
+            
+            using (Transaction tran = new Transaction(doc, "EntGrid"))
+            {
+                tran.Start();
+
+                if (isCheckedAxesSideFirst) foreach (Grid grid in listGrids) grid.ShowBubbleInView(DatumEnds.End0, activeView);
+                else foreach (Grid grid in listGrids) grid.HideBubbleInView(DatumEnds.End0, activeView);
+                if (isCheckedAxesSideSecond) foreach (Grid grid in listGrids) grid.ShowBubbleInView(DatumEnds.End1, activeView);
+                else foreach (Grid grid in listGrids) grid.HideBubbleInView(DatumEnds.End1, activeView); 
+
+                tran.Commit();
+            }
+        }
+    }
+
+
+    /// <summary>
+    /// Логика взаимодействия для AnnotateDetailItems.xaml
+    /// </summary>
+    public partial class WindowGrids : Window
+    {
+        /// <summary>
+        /// /
+        /// </summary>
+        public WindowGrids()
+        {
+            ViewModelSettingsGrids viewModelSettings = new ViewModelSettingsGrids();
+            InitializeComponent();
+            DataContext = viewModelSettings;
+            viewModelSettings.CloseAction = new Action(() => this.Close());
+        }
+    }
+
+
+    class ViewModelSettingsGrids : INotifyPropertyChanged
+    {
+        private ICommand _runCommand;
+
+
+        public ICommand RunCommand
+        {
+            get
+            {
+                return _runCommand ?? (_runCommand = new CommandHandler(() => RunAction(), () => CanExecute));
+            }
+        }
+
+
+        public bool CanExecute
+        {
+            get
+            {
+                // check if executing is allowed, i.e., validate, check if a process is running, etc. 
+                //return true / false;
+                return true;
+            }
+        }
+
+
+        public void RunAction()
+        {
+            CloseAction();
+
+            ClassAnnotateTagsToPlan classAnnotateTagsToPlan = new ClassAnnotateTagsToPlan();
+            classAnnotateTagsToPlan.GridsBubbleOn();
+        }
+
+
+        public Action CloseAction { get; set; }
+
+
+        public event PropertyChangedEventHandler PropertyChanged;
+
+
+        protected void OnPropertyChange(string propertyName)
+        {
+            if (PropertyChanged != null)
+            {
+                PropertyChanged(this, new PropertyChangedEventArgs(propertyName));
+            }
+        }
+
+
+        public bool IsCheckedAxesSideFirst
+        {
+            get => settingsDataGrids.IsCheckedAxesSideFirst;
+            set
+            {
+                settingsDataGrids.IsCheckedAxesSideFirst = value;
+                OnPropertyChange("IsCheckedAxesSideFirst");
+                Properties.Settings.Default["isCheckedAxesSideFirst"] = value;
+                Properties.Settings.Default.Save();
+            }
+        }
+
+
+        public bool IsCheckedAxesSideSecond
+        {
+            get => settingsDataGrids.IsCheckedAxesSideSecond;
+            set
+            {
+                settingsDataGrids.IsCheckedAxesSideSecond = value;
+                OnPropertyChange("IsCheckedAxesSideSecond");
+                Properties.Settings.Default["isCheckedAxesSideSecond"] = value;
+                Properties.Settings.Default.Save();
+            }
+        }
+
+
+        private SettingsDataGrids settingsDataGrids;
+
+
+        public ViewModelSettingsGrids()
+        {
+            settingsDataGrids = new SettingsDataGrids
+            {
+                IsCheckedAxesSideFirst = Convert.ToBoolean(Properties.Settings.Default["isCheckedAxesSideFirst"]),
+                IsCheckedAxesSideSecond = Convert.ToBoolean(Properties.Settings.Default["isCheckedAxesSideSecond"]),
+            };
+        }
+    }
+
+
+    sealed class SettingsDataGrids
+    {
+        public bool IsCheckedAxesSideFirst { get; set; }
+        public bool IsCheckedAxesSideSecond { get; set; }
+    }
+
+
+    public static class TransferToPlan
+    {
+        public static ExternalCommandData revit = null;
+    }
+}
